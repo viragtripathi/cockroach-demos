@@ -1,0 +1,70 @@
+version: "3.9"
+
+x-cockroach-image: &cockroach-image
+  cockroachdb/cockroach:${CRDB_VERSION:-v25.4.9}
+
+services:
+  haproxy:
+    image: haproxy:lts
+    container_name: haproxy
+    ports:
+      - "26257:26257"   # SQL
+      - "8404:8404"     # HAProxy stats UI
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      - crdb-1
+      - crdb-2
+      - crdb-3
+
+  # CockroachDB nodes (3 total, 1 region)
+  crdb-1:
+    image: *cockroach-image
+    container_name: crdb-1
+    command: ["start","--insecure","--listen-addr=0.0.0.0:26257","--advertise-addr=crdb-1:26257","--http-addr=0.0.0.0:8080",
+              "--locality=region=us-east-1,zone=a","--join=crdb-1:26257,crdb-2:26257,crdb-3:26257"]
+    ports:
+      - "8080:8080"
+
+  crdb-2:
+    image: *cockroach-image
+    container_name: crdb-2
+    command: ["start","--insecure","--listen-addr=0.0.0.0:26257","--advertise-addr=crdb-2:26257","--http-addr=0.0.0.0:8080",
+              "--locality=region=us-east-1,zone=b","--join=crdb-1:26257,crdb-2:26257,crdb-3:26257"]
+    ports:
+      - "8081:8080"
+
+  crdb-3:
+    image: *cockroach-image
+    container_name: crdb-3
+    command: ["start","--insecure","--listen-addr=0.0.0.0:26257","--advertise-addr=crdb-3:26257","--http-addr=0.0.0.0:8080",
+              "--locality=region=us-east-1,zone=c","--join=crdb-1:26257,crdb-2:26257,crdb-3:26257"]
+    ports:
+      - "8082:8080"
+
+  # Initialize the cluster once
+  crdb-init:
+    image: *cockroach-image
+    container_name: crdb-init
+    depends_on:
+      - crdb-1
+      - crdb-2
+      - crdb-3
+    entrypoint: ["/bin/sh","-c"]
+    command: >
+      "sleep 4 &&
+       /cockroach/cockroach init --insecure --host=crdb-1:26257 ||
+       true"
+
+  # Bootstrap SQL
+  crdb-bootstrap:
+    image: *cockroach-image
+    container_name: crdb-bootstrap
+    depends_on:
+      - crdb-init
+    volumes:
+      - ./init.sql:/init.sql:ro
+    entrypoint: ["/bin/sh","-c"]
+    command: >
+      "until /cockroach/cockroach sql --insecure --host=crdb-1:26257 -e 'select 1'; do sleep 1; done &&
+       /cockroach/cockroach sql --insecure --host=crdb-1:26257 --file=/init.sql"
