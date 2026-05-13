@@ -7,7 +7,7 @@ echo "===================================================="
 echo ""
 
 # Show version being used
-CRDB_VERSION="${CRDB_VERSION:-v25.4.9}"
+CRDB_VERSION="${CRDB_VERSION:-v25.4.10}"
 echo "CockroachDB version: ${CRDB_VERSION}"
 echo ""
 
